@@ -34,6 +34,8 @@
 #define JOYSTICK_ANALOG_MAX 255
 #define JOYSTICK_ANALOG_MIN 0
 
+#define UNPRESSED_BUTTON_VALUE 0
+
 #define CONNECTION_NEGOTIATION_WAIT_TIME 10000
 #define SAMPLE_COUNT 4 //Must be a power of two
 
@@ -41,7 +43,7 @@ uint32_t connectedDelay = millis();
 boolean reconnected=false;
 
 
-
+boolean userSignalledConnected=false;
 
 #define BUTTONCOUNT 8
 
@@ -52,23 +54,24 @@ static BLEHIDDevice* hid;
 BLECharacteristic* input;
 BLECharacteristic* output;
 boolean device_connected = false;
+
+
 class MyCallbacks : public BLEServerCallbacks {
     void onConnect(BLEServer* pServer) {
       Serial.println("connected");
       device_connected = true;
-
+      
       // workaround after reconnect (see comment below)
       BLEDescriptor *desc = input->getDescriptorByUUID(BLEUUID((uint16_t)0x2902));
       uint8_t val[] = {0x01, 0x00};
       desc->setValue(val, 2);
-      connectedDelay = millis();
-      reconnected=true;
+      
     }
 
     void onDisconnect(BLEServer* pServer) {
       Serial.println("disconnected");
-      device_connected = false;
-      reconnected=false;
+      device_connected = false;      
+      userSignalledConnected=false;
     }
 };
 
@@ -178,11 +181,21 @@ byte lButtonState;
 byte lastButtonState;
 byte X_Joystick;
 byte Y_Joystick;
+byte userSignal;
 
 void loop() {
 
+  if(!userSignalledConnected) //User has not as yet signalled that pairing is completed on phone
+  {
+    userSignal=getButtonState();    
+    if(userSignal!=UNPRESSED_BUTTON_VALUE)
+    {
+      userSignalledConnected=true;
+    }
+  }
 
-  if (device_connected)
+
+  if (userSignalledConnected) //Only when the user signals, do we start sending data
   {
     lButtonState = getButtonState();
     X_Joystick = getAnalogChannelValue(ANALOG_X);
@@ -191,20 +204,11 @@ void loop() {
     input->setValue(a, sizeof(a));
     input->notify();
     lastButtonState = lButtonState;
-    delay(1);
+    //delay(1);
    
   }
-  else if(reconnected)
-  {
-    if (millis() - connectedDelay > 10000)
-    {
-      Serial.println("Device Has Connected");
-      device_connected = true;
-    }
-    //delay(1);
-  }
 
-
+delay(1);
 }
 
 byte getButtonState()
