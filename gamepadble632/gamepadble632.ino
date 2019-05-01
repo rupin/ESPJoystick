@@ -30,20 +30,28 @@
 #define R1_BUTTON 35
 #define ANALOG_X 36
 #define ANALOG_Y 39
+#define PULSE_PIN 27
+
+#define PULSE_MIN_DURATION 0
+#define PULSE_MAX_DURATION 2048
 
 #define JOYSTICK_ANALOG_MAX 255
 #define JOYSTICK_ANALOG_MIN 0
 
 #define UNPRESSED_BUTTON_VALUE 0
 
-#define CONNECTION_NEGOTIATION_WAIT_TIME 10000
+
 #define SAMPLE_COUNT 4 //Must be a power of two
+
+portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 
 uint32_t connectedDelay = millis();
 boolean reconnected=false;
 
 
 boolean userSignalledConnected=false;
+uint32_t lastInterruptTime=0;
+uint32_t pulseDuration=0;
 
 #define BUTTONCOUNT 8
 
@@ -51,7 +59,8 @@ int buttonArray[BUTTONCOUNT] = {R1_BUTTON, L1_BUTTON, ZBUTTON, YBUTTON, XBUTTON,
 byte buttonIndex = 0;
 
 static BLEHIDDevice* hid;
-BLECharacteristic* input;
+BLECharacteristic* device1;
+BLECharacteristic* device2;
 BLECharacteristic* output;
 boolean device_connected = false;
 
@@ -62,9 +71,13 @@ class MyCallbacks : public BLEServerCallbacks {
       device_connected = true;
       
       // workaround after reconnect (see comment below)
-      BLEDescriptor *desc = input->getDescriptorByUUID(BLEUUID((uint16_t)0x2902));
-      uint8_t val[] = {0x01, 0x00};
-      desc->setValue(val, 2);
+      BLEDescriptor *desc1 = device1->getDescriptorByUUID(BLEUUID((uint16_t)0x2902));
+      uint8_t val1[] = {0x01, 0x00};
+      desc1->setValue(val1, 2);
+
+      BLEDescriptor *desc2 = device2->getDescriptorByUUID(BLEUUID((uint16_t)0x2902));
+      uint8_t val2[] = {0x01, 0x00};
+      desc2->setValue(val2, 2);
       
     }
 
@@ -74,7 +87,7 @@ class MyCallbacks : public BLEServerCallbacks {
       userSignalledConnected=false;
     }
 };
-
+void IRAM_ATTR handleInterrupt();
 void setup() {
   //
   Serial.begin(115200);
@@ -83,6 +96,9 @@ void setup() {
   {
     pinMode(buttonArray[buttonIndex], INPUT);
   }
+  pinMode(PULSE_PIN, INPUT);
+  attachInterrupt(digitalPinToInterrupt(PULSE_PIN), handleInterrupt, RISING);
+
 
   //
   BLEDevice::init("ESP32");
@@ -95,8 +111,9 @@ void setup() {
   */
   hid = new BLEHIDDevice(pServer);
 
-  input = hid->inputReport(1); // <-- input REPORTID from report map
-  output = hid->outputReport(1); // <-- output REPORTID from report map
+  device1 = hid->inputReport(1); // <-- input REPORTID from report map
+  device2 = hid->inputReport(2); // <-- input REPORTID from report map
+ // output = hid->outputReport(1); // <-- output REPORTID from report map
 
   /*
      Set manufacturer name (OPTIONAL)
@@ -120,6 +137,19 @@ void setup() {
   /*
      Gamepad
   */
+  /*const uint8_t reportMap[] = {
+    
+
+
+
+    0x05, 0x03,                 // USAGE_PAGE (VR Controls)
+    0x09, 0x07,                 // USAGE (Hand Tracker)
+    0xa1, 0x01,                 // COLLECTION (Application)    
+    0xa1, 0x00,                 //   COLLECTION (Physical)   
+    0xc0,                       //   END_COLLECTION
+    0xc0                        // END_COLLECTION
+  };*/
+
   const uint8_t reportMap[] = {
     0x05, 0x01,  /* USAGE_PAGE (Generic Desktop)       */
     0x09, 0x05,  /* USAGE (Game Pad)                   */
@@ -131,10 +161,10 @@ void setup() {
     0x29, 0x10,  /*     USAGE_MAXIMUM (Button 16)      */
     0x15, 0x00,  /*     LOGICAL_MINIMUM (0)            */
     0x25, 0x01,  /*     LOGICAL_MAXIMUM (1)            */
-    0x95, 0x10,  /*     REPORT_COUNT (8)              */
-    0x75, 0x01,  /*     REPORT_SIZE (2)                */
+    0x95, 0x08,  /*     REPORT_COUNT (8)              */
+    0x75, 0x02,  /*     REPORT_SIZE (2)                */
     0x81, 0x02,  /*     INPUT (Data,Var,Abs)           */
-    0xa1, 0x00,  /*     COLLECTION (Physical)          */
+    /*0xa1, 0x00,  /*     COLLECTION (Physical)          */
     0x05, 0x01,  /*       USAGE_PAGE (Generic Desktop) */
     0x09, 0x30,  /*       USAGE (X)                    */
     0x09, 0x31,  /*       USAGE (Y)                    */
@@ -143,9 +173,35 @@ void setup() {
     0x75, 0x08,  /*       REPORT_SIZE (8)              */
     0x95, 0x02,  /*       REPORT_COUNT (2)             */
     0x81, 0x02,  /*       INPUT (Data,Var,Abs)         */
-    0xc0,        /*     END_COLLECTION                 */
+   /* 0xc0,        /*     END_COLLECTION                 */
     0xc0,        /*   END_COLLECTION                   */
-    0xc0         /* END_COLLECTION                     */
+    0xc0,         /* END_COLLECTION                     */
+
+    0x05, 0x01,  /* USAGE_PAGE (Generic Desktop)       */
+    0x09, 0x05,  /* USAGE (Game Pad)                   */
+    0xa1, 0x01,  /* COLLECTION (Application)           */
+    0xa1, 0x03,  /*   COLLECTION (Report)              */
+    0x85, 0x02,  /*     REPORT_ID (1)                  */
+    0x05, 0x09,  /*     USAGE_PAGE (Button)            */
+    0x19, 0x01,  /*     USAGE_MINIMUM (Button 1)       */
+    0x29, 0x10,  /*     USAGE_MAXIMUM (Button 16)      */
+    0x15, 0x00,  /*     LOGICAL_MINIMUM (0)            */
+    0x25, 0x01,  /*     LOGICAL_MAXIMUM (1)            */
+    0x95, 0x08,  /*     REPORT_COUNT (8)              */
+    0x75, 0x02,  /*     REPORT_SIZE (2)                */
+    0x81, 0x02,  /*     INPUT (Data,Var,Abs)           */
+    /*0xa1, 0x00,  /*     COLLECTION (Physical)          */
+    0x05, 0x01,  /*       USAGE_PAGE (Generic Desktop) */
+    0x09, 0x30,  /*       USAGE (X)                    */
+    0x09, 0x31,  /*       USAGE (Y)                    */
+    0x15, 0x00,  /*       LOGICAL_MINIMUM (0)          */
+    0x25, 0xFF,  /*       LOGICAL_MAXIMUM (100)        */
+    0x75, 0x08,  /*       REPORT_SIZE (8)              */
+    0x95, 0x02,  /*       REPORT_COUNT (2)             */
+    0x81, 0x02,  /*       INPUT (Data,Var,Abs)         */
+   /* 0xc0,        /*     END_COLLECTION                 */
+    0xc0,        /*   END_COLLECTION                   */
+    0xc0         /* END_COLLECTION*/
   };
 
   /*
@@ -177,11 +233,11 @@ void setup() {
   Serial.println("starting");
 }
 
-byte lButtonState;
+uint8_t lButtonState;
 byte lastButtonState;
 byte X_Joystick;
 byte Y_Joystick;
-byte userSignal;
+uint8_t userSignal;
 
 void loop() {
 
@@ -201,9 +257,14 @@ void loop() {
     X_Joystick = getAnalogChannelValue(ANALOG_X);
     Y_Joystick = getAnalogChannelValue(ANALOG_Y);
     uint8_t a[] = {lButtonState, 0x00, X_Joystick, Y_Joystick};
-    input->setValue(a, sizeof(a));
-    input->notify();
+    device1->setValue(a, sizeof(a));
+    device1->notify();
+
+    uint8_t b[] = {lButtonState, 0x00, X_Joystick, Y_Joystick};
+    device2->setValue(b, sizeof(b));
+    device2->notify();
     lastButtonState = lButtonState;
+    
     //delay(1);
    
   }
@@ -211,7 +272,7 @@ void loop() {
 delay(1);
 }
 
-byte getButtonState()
+uint8_t getButtonState()
 {
   byte buttonState = 0;
   byte currentButtonPressed;
@@ -249,4 +310,27 @@ byte getAnalogChannelValue(const int analogpin)
   joystickValue=joystickValue>>4;  
   return (byte)joystickValue;
 
+}
+
+byte getFrequency()
+{
+  if(millis()-lastInterruptTime>PULSE_MAX_DURATION)
+  {
+     return 127;// Midpoint value for a Joystick With full range 0-255
+  }
+  else
+  {
+    // PULSE_MAX_DURATION is 2048 milliseconds/2.048 seconds. To bring it to range 0-128, we need to shift it by 4 bits.
+    //This is faster than the map function. 
+    return pulseDuration>>4;
+  }
+  
+}
+
+void IRAM_ATTR handleInterrupt()
+{
+  portENTER_CRITICAL_ISR(&mux);
+  pulseDuration=millis()-lastInterruptTime;
+  lastInterruptTime=millis();
+  portEXIT_CRITICAL_ISR(&mux);
 }
