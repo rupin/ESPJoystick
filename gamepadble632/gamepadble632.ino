@@ -60,7 +60,7 @@ byte buttonIndex = 0;
 
 static BLEHIDDevice* hid;
 BLECharacteristic* device1;
-BLECharacteristic* device2;
+
 BLECharacteristic* output;
 boolean device_connected = false;
 
@@ -75,9 +75,7 @@ class MyCallbacks : public BLEServerCallbacks {
       uint8_t val1[] = {0x01, 0x00};
       desc1->setValue(val1, 2);
 
-      BLEDescriptor *desc2 = device2->getDescriptorByUUID(BLEUUID((uint16_t)0x2902));
-      uint8_t val2[] = {0x01, 0x00};
-      desc2->setValue(val2, 2);
+     
       
     }
 
@@ -112,7 +110,7 @@ void setup() {
   hid = new BLEHIDDevice(pServer);
 
   device1 = hid->inputReport(1); // <-- input REPORTID from report map
-  device2 = hid->inputReport(2); // <-- input REPORTID from report map
+  //device2 = hid->inputReport(2); // <-- input REPORTID from report map
  // output = hid->outputReport(1); // <-- output REPORTID from report map
 
   /*
@@ -175,33 +173,9 @@ void setup() {
     0x81, 0x02,  /*       INPUT (Data,Var,Abs)         */
    /* 0xc0,        /*     END_COLLECTION                 */
     0xc0,        /*   END_COLLECTION                   */
-    0xc0,         /* END_COLLECTION                     */
+    0xc0         /* END_COLLECTION                     */
 
-    0x05, 0x01,  /* USAGE_PAGE (Generic Desktop)       */
-    0x09, 0x05,  /* USAGE (Game Pad)                   */
-    0xa1, 0x01,  /* COLLECTION (Application)           */
-    0xa1, 0x03,  /*   COLLECTION (Report)              */
-    0x85, 0x02,  /*     REPORT_ID (1)                  */
-    0x05, 0x09,  /*     USAGE_PAGE (Button)            */
-    0x19, 0x01,  /*     USAGE_MINIMUM (Button 1)       */
-    0x29, 0x10,  /*     USAGE_MAXIMUM (Button 16)      */
-    0x15, 0x00,  /*     LOGICAL_MINIMUM (0)            */
-    0x25, 0x01,  /*     LOGICAL_MAXIMUM (1)            */
-    0x95, 0x08,  /*     REPORT_COUNT (8)              */
-    0x75, 0x02,  /*     REPORT_SIZE (2)                */
-    0x81, 0x02,  /*     INPUT (Data,Var,Abs)           */
-    /*0xa1, 0x00,  /*     COLLECTION (Physical)          */
-    0x05, 0x01,  /*       USAGE_PAGE (Generic Desktop) */
-    0x09, 0x30,  /*       USAGE (X)                    */
-    0x09, 0x31,  /*       USAGE (Y)                    */
-    0x15, 0x00,  /*       LOGICAL_MINIMUM (0)          */
-    0x25, 0xFF,  /*       LOGICAL_MAXIMUM (100)        */
-    0x75, 0x08,  /*       REPORT_SIZE (8)              */
-    0x95, 0x02,  /*       REPORT_COUNT (2)             */
-    0x81, 0x02,  /*       INPUT (Data,Var,Abs)         */
-   /* 0xc0,        /*     END_COLLECTION                 */
-    0xc0,        /*   END_COLLECTION                   */
-    0xc0         /* END_COLLECTION*/
+   
   };
 
   /*
@@ -260,9 +234,7 @@ void loop() {
     device1->setValue(a, sizeof(a));
     device1->notify();
 
-    uint8_t b[] = {lButtonState, 0x00, X_Joystick, Y_Joystick};
-    device2->setValue(b, sizeof(b));
-    device2->notify();
+   
     lastButtonState = lButtonState;
     
     //delay(1);
