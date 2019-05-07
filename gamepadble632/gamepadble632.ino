@@ -8,6 +8,14 @@
 
 
 #include <Arduino.h>
+#include <SparkFunMPU9250-DMP.h>
+#include<Math.h>
+#define MSB 1
+#define LSB 0
+
+MPU9250_DMP imu;
+
+
 
 
 
@@ -68,29 +76,11 @@ BLECharacteristic* device1o;
 boolean device_connected = false;
 
 
-/*class MyCallbacks : public BLEServerCallbacks {
-    void onConnect(BLEServer* pServer) {
-      Serial.println("connected");
-      device_connected = true;
-
-      // workaround after reconnect (see comment below)
-      BLEDescriptor *desc1 = device1->getDescriptorByUUID(BLEUUID((uint16_t)0x2902));
-      uint8_t val1[] = {0x01, 0x00};
-      desc1->setValue(val1, 2);
-
-
-
-    }
-
-    void onDisconnect(BLEServer* pServer) {
-      Serial.println("disconnected");
-
-    }
-  };*/
+uint16_t orientationData[6];
 
 const uint8_t reportMap[] = {
   0x05, 0x01, // USAGE_PAGE (Generic Desktop)
-  0x09, 0x05,  // USAGE (Game Pad)
+  0x09, 0x04,  // USAGE (Joystick)
   0xa1, 0x01, // COLLECTION (Application)
 
   0x85, 0x01,  //     REPORT_ID (1)
@@ -99,30 +89,32 @@ const uint8_t reportMap[] = {
   0x29, 0x10,  //     USAGE_MAXIMUM (Button 16)
   0x15, 0x00,  //     LOGICAL_MINIMUM (0)
   0x25, 0x01,  //     LOGICAL_MAXIMUM (1)
-  0x95, 0x08,  //     REPORT_COUNT (8)
-  0x75, 0x02,  //     REPORT_SIZE (2)
+  0x95, 0x08,  //     REPORT_COUNT (16)
+  0x75, 0x02,  //     REPORT_SIZE (1)
   0x81, 0x02,  //     INPUT (Data,Var,Abs)
 
   0x05, 0x01,  //     USAGE_PAGE (Generic Desktop)
   0x09, 0x30,  //     USAGE (X)
   0x09, 0x31,  //     USAGE (Y)
   0x15, 0x00,  //     LOGICAL_MINIMUM (0)
-  0x25, 0xFF,  //     LOGICAL_MAXIMUM (100)
+  0x26, 0xFF,0x00,  //     LOGICAL_MAXIMUM (100)
   0x75, 0x08,  //     REPORT_SIZE (8)
   0x95, 0x02,  //     REPORT_COUNT (2)
   0x81, 0x02,  //     INPUT (Data,Var,Abs)
+  
 
-  0x05, 0x01,  //     USAGE_PAGE (Generic Desktop)  
-  0x09, 0x33,  //     USAGE (VRX)
-  0x09, 0x34,  //     USAGE (VRY)
-  0x09, 0x35,  //     USAGE (VRZ)
-  0x15, 0x00,  //     LOGICAL_MINIMUM (0)
-  0x25, 0xFF,  //     LOGICAL_MAXIMUM (100)
-  0x75, 0x08,  //     REPORT_SIZE (8)
-  0x95, 0x02,  //     REPORT_COUNT (3)
+  0x05, 0x01,  //     USAGE_PAGE (Generic Desktop)
+  0x09, 0x33,  //     USAGE (RX)
+  0x09, 0x34,  //     USAGE (RY)
+  0x09, 0x35,  //     USAGE (RZ)
+  0x15, 0x00, //     LOGICAL_MINIMUM (0) //See https://www.microchip.com/forums/m413261.aspx
+  0x26, 0x01, 0x68,// LOGICAL_MAXIMUM (360) //Sequence of Bytes here (MSB, LSB) should be same sequence in sending data.
+ 
+  0x75, 0x10,  //     REPORT_SIZE (16)
+  0x95, 0x03,  //     REPORT_COUNT (3)
   0x81, 0x02,  //     INPUT (Data,Var,Abs)
 
-  
+
   0xc0       //       END COLLECTION (Application)
 
 
@@ -132,19 +124,19 @@ const uint8_t reportMap[] = {
 
 class MyCallbacks : public BLEServerCallbacks {
     void onConnect(BLEServer* pServer) {
-      
+
       BLE2902* desc1 = (BLE2902*)device1->getDescriptorByUUID(BLEUUID((uint16_t)0x2902));
       desc1->setNotifications(true);
-      
+
       device_connected = true;
 
-      
+
     }
 
     void onDisconnect(BLEServer* pServer) {
       //connected = false;
       BLE2902* desc1 = (BLE2902*)device1->getDescriptorByUUID(BLEUUID((uint16_t)0x2902));
-      desc1->setNotifications(false);    
+      desc1->setNotifications(false);
 
       device_connected = false;
       userSignalledConnected = false;
@@ -159,7 +151,7 @@ void taskServer() {
 
   hid = new BLEHIDDevice(pServer);
   device1 = hid->inputReport(1); // <-- input REPORTID from report map
- 
+
 
   // device2 = hid->inputReport(2); // <-- input REPORTID from report map
   //device2o = hid->outputReport(2); // <-- output REPORTID from report map
@@ -201,6 +193,27 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(PULSE_PIN), handleInterrupt, RISING);
 
 
+  // IMU Code
+  if (imu.begin() != INV_SUCCESS)
+  {
+    while (1)
+
+
+    {
+      Serial.println("Unable to communicate with MPU-9250");
+      Serial.println("Check connections, and try again.");
+      Serial.println();
+      delay(5000);
+    }
+  }
+
+  imu.dmpBegin(DMP_FEATURE_6X_LP_QUAT | // Enable 6-axis quat
+               DMP_FEATURE_GYRO_CAL, // Use gyro calibration
+               100); // Set DMP FIFO rate to 10 Hz
+  // DMP_FEATURE_LP_QUAT can also be used. It uses the
+  // accelerometer in low-power mode to estimate quat's.
+  // DMP_FEATURE_LP_QUAT and 6X_LP_QUAT are mutually exclusive
+
   //xTaskCreate(taskServer, "server", 20000, NULL, 5, NULL);
   taskServer();
   Serial.println("starting");
@@ -213,7 +226,7 @@ byte Y_Joystick;
 uint8_t userSignal;
 
 void loop() {
-
+  updateIMUData();
   if (!userSignalledConnected) //User has not as yet signalled that pairing is completed on phone
   {
     userSignal = getButtonState();
@@ -229,9 +242,22 @@ void loop() {
     lButtonState = getButtonState();
     X_Joystick = getAnalogChannelValue(ANALOG_X);
     Y_Joystick = getAnalogChannelValue(ANALOG_Y);
-    uint8_t a[] = {lButtonState, 0x00, X_Joystick, Y_Joystick, X_Joystick, 0x00, 0x00};
+    uint8_t a[] = {lButtonState,
+                   0x00,
+                   X_Joystick,
+                   Y_Joystick,
+                   orientationData[0],
+                   orientationData[1],
+                   orientationData[2],
+                   orientationData[3],
+                   orientationData[4],
+                   orientationData[5]
+                  };
+     
+
+              
     device1->setValue(a, sizeof(a));
-    device1->notify();   
+    device1->notify();
 
     lastButtonState = lButtonState;
 
@@ -303,4 +329,65 @@ void IRAM_ATTR handleInterrupt()
   pulseDuration = millis() - lastInterruptTime;
   lastInterruptTime = millis();
   portEXIT_CRITICAL_ISR(&mux);
+}
+
+void updateIMUData()
+{
+  // Check for new data in the FIFO
+  if ( imu.fifoAvailable() )
+  {
+    // Use dmpUpdateFifo to update the ax, gx, mx, etc. values
+    if ( imu.dmpUpdateFifo() == INV_SUCCESS)
+    {
+      // computeEulerAngles can be used -- after updating the
+      // quaternion values -- to estimate roll, pitch, and yaw
+      imu.computeEulerAngles();
+
+      uint16_t pitchData = (uint16_t)imu.pitch;
+      uint16_t rollData = (uint16_t)imu.roll;
+      uint16_t yawData = (uint16_t)imu.yaw;
+
+     // uint16_t pitchData = 45;
+     // uint16_t rollData = 35;
+     // uint16_t yawData = 22;
+
+      //Serial.println(pitchData);
+
+      orientationData[0] = getByte(pitchData, MSB);
+      orientationData[1] = getByte(pitchData, LSB);
+
+      orientationData[2] = getByte(rollData, MSB);
+      orientationData[3] = getByte(rollData, LSB);
+
+      orientationData[4] = getByte(yawData, MSB);
+      orientationData[5] = getByte(yawData, LSB);
+
+      for (byte i = 0; i < 6; i++)
+      {
+        Serial.print(orientationData[i]);
+        Serial.print("\t");
+      }
+      Serial.println();
+
+
+
+
+    }
+  }
+}
+uint8_t getByte(uint16_t sentData, uint8_t whichByte)
+{
+  uint8_t retVal = 0;
+  if (whichByte == MSB)
+  {
+    retVal = (sentData & 0xFF00) >> 8;
+    return retVal;
+  }
+
+  if (whichByte == LSB)
+  {
+    retVal = sentData & 0x00FF;
+    return retVal;
+  }
+
 }
